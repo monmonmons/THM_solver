@@ -231,12 +231,15 @@ hypre_int main(hypre_int argc, char *argv[])
    HYPRE_Real final_res_norm;
 
    /* amg options */
-   HYPRE_Int cycle_type, rlx_type, coarse_rlx_type, rlx_sweeps;
-   HYPRE_Real rlx_weight, rlx_omega, theta;
-   HYPRE_Int amg_coarsen_type, amg_rlx_type, amg_interp_type, amg_agg_levels, amg_Pmax;
+   HYPRE_Int amg_rlx_type, alpha_coarse_rlx_type, beta_coarse_rlx_type;
+   HYPRE_Real theta;
+   HYPRE_Int amg_coarsen_type, amg_interp_type, amg_agg_levels, amg_Pmax, amg_rlx_sweeps;
+   HYPRE_Int beta_amg_max_level, beta_amg_print_level, beta_amg_max_iter;
 
    /* ams options */
-   HYPRE_Int dim, h1_method, singular_problem, coordinates;
+   HYPRE_Int dim, cycle_type, ams_rlx_type, ams_rlx_sweeps;
+   HYPRE_Int h1_method, singular_problem, coordinates;
+   HYPRE_Real ams_rlx_weight, ams_rlx_omega;
    HYPRE_Int recompute_residual_p;
    HYPRE_Int zero_cond;
 
@@ -304,16 +307,21 @@ hypre_int main(hypre_int argc, char *argv[])
 
    kdim = 30;
 
-   rlx_sweeps = 1;
-   rlx_weight = 1.0;
-   rlx_omega = 1.0;
-
    cycle_type = 13;
-   rlx_type = 2;  /* 2 - GS; 6 - sym GS */
-   coarse_rlx_type = 9; /* 1 - Jacobi; 8 - SSOR; 9 - direct */
+   ams_rlx_type = 2;  /* 1 - l1-scaled JAC; 3 - kaczmarz; 2/4: Hybrid GS; */
+   ams_rlx_sweeps = 1;
+   ams_rlx_weight = 1.0;
+   ams_rlx_omega = 1.0;
+
+   beta_amg_max_level = 25;
+   beta_amg_max_iter = 1;
+   beta_amg_print_level = 0;
+   beta_coarse_rlx_type = 8; /* 1 - Jacobi; 8 - SSOR; 9 - direct */
+
+   alpha_coarse_rlx_type = 8; /* 1 - Jacobi; 8 - SSOR; 9 - direct */
    amg_coarsen_type = 10; /* 10: HMIS-1 ; 8: PMIS */
    amg_agg_levels = 1;
-   amg_rlx_type = 6;
+   amg_rlx_type = 6; /* 3 - GS; 6 - sym GS */
 
    /* cycle_type = 1; amg_coarsen_type = 10; amg_agg_levels = 0; amg_rlx_type = 3; */ /* HMIS-0 */
    /* cycle_type = 1; amg_coarsen_type = 8; amg_agg_levels = 1; amg_rlx_type = 3;  */ /* PMIS-1 */
@@ -323,7 +331,7 @@ hypre_int main(hypre_int argc, char *argv[])
    amg_interp_type = 6;  /* 6 - extended+i interpolation; 0 - standard interpolation */
    amg_Pmax = 4; /* long-range interpolation */                          /* PMIS */
    /* amg_interp_type = 0; amg_Pmax = 0; */ /* standard interpolation */ /* HMIS */
-
+   amg_rlx_sweeps = 1;
    theta = 0.25;
    recompute_residual_p = 0;
    zero_cond = 0;
@@ -355,6 +363,21 @@ hypre_int main(hypre_int argc, char *argv[])
             arg_index++;
             print_level = atoi(argv[arg_index++]);
          }
+         else if (strcmp(argv[arg_index], "-bmaxlv") == 0)
+         {
+            arg_index++;
+            beta_amg_max_level = atoi(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-bptlv") == 0)
+         {
+            arg_index++;
+            beta_amg_print_level = atoi(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-bmaxit") == 0)
+         {
+            arg_index++;
+            beta_amg_max_iter = atoi(argv[arg_index++]);
+         }
          else if (strcmp(argv[arg_index], "-maxit") == 0)
          {
             arg_index++;
@@ -375,40 +398,50 @@ hypre_int main(hypre_int argc, char *argv[])
             arg_index++;
             cycle_type = atoi(argv[arg_index++]);
          }
-         else if (strcmp(argv[arg_index], "-rlx") == 0)
+         else if (strcmp(argv[arg_index], "-amsrlx") == 0)
          {
             arg_index++;
-            rlx_type = atoi(argv[arg_index++]);
-         }
-         else if (strcmp(argv[arg_index], "-rlxn") == 0)
-         {
-            arg_index++;
-            rlx_sweeps = atoi(argv[arg_index++]);
-         }
-         else if (strcmp(argv[arg_index], "-rlxw") == 0)
-         {
-            arg_index++;
-            rlx_weight = (HYPRE_Real)atof(argv[arg_index++]);
-         }
-         else if (strcmp(argv[arg_index], "-rlxo") == 0)
-         {
-            arg_index++;
-            rlx_omega = (HYPRE_Real)atof(argv[arg_index++]);
-         }
-         else if (strcmp(argv[arg_index], "-ctype") == 0)
-         {
-            arg_index++;
-            amg_coarsen_type = atoi(argv[arg_index++]);
+            ams_rlx_type = atoi(argv[arg_index++]);
          }
          else if (strcmp(argv[arg_index], "-amgrlx") == 0)
          {
             arg_index++;
             amg_rlx_type = atoi(argv[arg_index++]);
          }
-         else if (strcmp(argv[arg_index], "-crlx") == 0)
+         else if (strcmp(argv[arg_index], "-amgrlxn") == 0)
          {
             arg_index++;
-            coarse_rlx_type = atoi(argv[arg_index++]);
+            amg_rlx_sweeps = atoi(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-rlxn") == 0)
+         {
+            arg_index++;
+            ams_rlx_sweeps = atoi(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-rlxw") == 0)
+         {
+            arg_index++;
+            ams_rlx_weight = (HYPRE_Real)atof(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-rlxo") == 0)
+         {
+            arg_index++;
+            ams_rlx_omega = (HYPRE_Real)atof(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-ctype") == 0)
+         {
+            arg_index++;
+            amg_coarsen_type = atoi(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-bcrlx") == 0)
+         {
+            arg_index++;
+            beta_coarse_rlx_type = atoi(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-acrlx") == 0)
+         {
+            arg_index++;
+            alpha_coarse_rlx_type = atoi(argv[arg_index++]);
          }
          else if (strcmp(argv[arg_index], "-agg") == 0)
          {
@@ -501,6 +534,10 @@ hypre_int main(hypre_int argc, char *argv[])
          hypre_printf("                           11 - AMG-PGMRES                     \n");
          hypre_printf("                           13 - AMS-PGMRES                     \n");
          hypre_printf("                           14 - DS-PGMRES                      \n");
+         hypre_printf("                           15 - AMG-DD-PGMRES                  \n");
+         hypre_printf("                           21 - AMG-FGMRES                     \n");
+         hypre_printf("                           23 - AMS-FGMRES                     \n");
+         hypre_printf("                           24 - DS-FGMRES                      \n");
          hypre_printf("    -maxit <num>         : maximum number of iterations (100)  \n");
          hypre_printf("    -tol <num>           : convergence tolerance (1e-6)        \n");
          hypre_printf("    -ptol <num>          : prec convergence tolerance (1e-6)   \n");
@@ -766,10 +803,10 @@ hypre_int main(hypre_int argc, char *argv[])
 
       /* Set some parameters (See Reference Manual for more parameters) */
       HYPRE_BoomerAMGSetPrintLevel(solver, print_level); /* print solve info + parameters */
-      // HYPRE_BoomerAMGSetCoarsenType(solver, 6); /* Falgout coarsening */
+      // HYPRE_BoomerAMGSetCoarsenType(solver, 6);   /* Falgout coarsening */
       HYPRE_BoomerAMGSetCoarsenType(solver, 8);      /* PMIS coarsening */
-      HYPRE_BoomerAMGSetRelaxType(solver, rlx_type); /* G-S/Jacobi hybrid relaxation */
-      HYPRE_BoomerAMGSetNumSweeps(solver, 1);        /* Sweeeps on each level */
+      HYPRE_BoomerAMGSetRelaxType(solver, amg_rlx_type); /* G-S/Jacobi hybrid relaxation */
+      HYPRE_BoomerAMGSetNumSweeps(solver, amg_rlx_sweeps);        /* Sweeeps on each level */
       HYPRE_BoomerAMGSetMaxLevels(solver, 20);       /* maximum number of levels */
       HYPRE_BoomerAMGSetTol(solver, tol);            /* conv. tolerance */
       HYPRE_BoomerAMGSetMaxIter(solver, maxit);      /* maximum number of iterations */
@@ -854,22 +891,18 @@ hypre_int main(hypre_int argc, char *argv[])
       }
 
       /* Smoothing and AMG options */
-      HYPRE_AMSSetSmoothingOptions(solver, rlx_type, rlx_sweeps, rlx_weight, rlx_omega);
+      HYPRE_AMSSetSmoothingOptions(solver, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
       HYPRE_AMSSetAlphaAMGOptions(solver, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                   amg_interp_type, amg_Pmax);
-      HYPRE_AMSSetAlphaAMGCoarseRelaxType(solver, coarse_rlx_type);
+      HYPRE_AMSSetAlphaAMGCoarseRelaxType(solver, alpha_coarse_rlx_type);
 
       HYPRE_AMSSetBetaAMGOptions(solver, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                  amg_interp_type, amg_Pmax);
-      HYPRE_AMSSetBetaAMGCoarseRelaxType(solver, coarse_rlx_type);
-      HYPRE_AMSSetBetaAMGCoarseMaxLevels(solver, 1);
+      HYPRE_AMSSetBetaAMGCoarseRelaxType(solver, beta_coarse_rlx_type);
 
-#if 0
-      hypre_AMSData *ams_data = (hypre_AMSData *) solver;
-      HYPRE_BoomerAMGSetMaxLevels(hypre_AMSDataPoissonBetaAMG(ams_data), 1);
-      HYPRE_BoomerAMGSetPrintLevel( hypre_AMSDataPoissonBetaAMG(ams_data), 2);
-      HYPRE_BoomerAMGSetMaxLevels( hypre_AMSDataPoissonAlphaXAMG(ams_data), 1);
-#endif
+      HYPRE_AMSSetBetaAMGMaxLevels(solver, beta_amg_max_level);
+      HYPRE_AMSSetBetaAMGMaxIter(solver, beta_amg_max_iter);
+      HYPRE_AMSSetBetaAMGPrintLevel(solver, beta_amg_print_level);
 
       HYPRE_AMSSetup(solver, A, b, x0);
 
@@ -966,8 +999,8 @@ hypre_int main(hypre_int argc, char *argv[])
          HYPRE_BoomerAMGCreate(&precond);
          HYPRE_BoomerAMGSetPrintLevel(precond, 1);       /* print amg solution info */
          HYPRE_BoomerAMGSetCoarsenType(precond, 6);      /* Falgout coarsening */
-         HYPRE_BoomerAMGSetRelaxType(precond, rlx_type); /* Sym G.S./Jacobi hybrid */
-         HYPRE_BoomerAMGSetNumSweeps(precond, 1);        /* Sweeeps on each level */
+         HYPRE_BoomerAMGSetRelaxType(precond, amg_rlx_type); /* Sym G.S./Jacobi hybrid */
+         HYPRE_BoomerAMGSetNumSweeps(precond, amg_rlx_sweeps);        /* Sweeeps on each level */
          HYPRE_BoomerAMGSetMaxLevels(precond, 20);       /* maximum number of levels */
          HYPRE_BoomerAMGSetTol(precond, ptol);            /* conv. tolerance (if needed) */
          HYPRE_BoomerAMGSetMaxIter(precond, p_maxit);          /* do only one iteration! */
@@ -1025,15 +1058,17 @@ hypre_int main(hypre_int argc, char *argv[])
          }
 
          /* Smoothing and AMG options */
-         HYPRE_AMSSetSmoothingOptions(precond, rlx_type, rlx_sweeps, rlx_weight, rlx_omega);
+         HYPRE_AMSSetSmoothingOptions(precond, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
          HYPRE_AMSSetAlphaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                      amg_interp_type, amg_Pmax);
          HYPRE_AMSSetBetaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                     amg_interp_type, amg_Pmax);
-         HYPRE_AMSSetAlphaAMGCoarseRelaxType(precond, coarse_rlx_type);
-         HYPRE_AMSSetBetaAMGCoarseRelaxType(precond, coarse_rlx_type);
+         HYPRE_AMSSetAlphaAMGCoarseRelaxType(precond, alpha_coarse_rlx_type);
+         HYPRE_AMSSetBetaAMGCoarseRelaxType(precond, beta_coarse_rlx_type);
 
-         HYPRE_AMSSetBetaAMGCoarseMaxLevels(solver, 1);
+         HYPRE_AMSSetBetaAMGMaxLevels(precond, beta_amg_max_level);
+         HYPRE_AMSSetBetaAMGMaxIter(precond, beta_amg_max_iter);
+         HYPRE_AMSSetBetaAMGPrintLevel(precond, beta_amg_print_level);
 
          /* Set the PCG preconditioner */
          HYPRE_PCGSetPrecond(solver,
@@ -1148,8 +1183,8 @@ hypre_int main(hypre_int argc, char *argv[])
          HYPRE_BoomerAMGCreate(&precond);
          HYPRE_BoomerAMGSetPrintLevel(precond, 1);       /* print amg solution info */
          HYPRE_BoomerAMGSetCoarsenType(precond, 6);      /* Falgout coarsening */
-         HYPRE_BoomerAMGSetRelaxType(precond, rlx_type); /* Sym G.S./Jacobi hybrid */
-         HYPRE_BoomerAMGSetNumSweeps(precond, 1);        /* Sweeeps on each level */
+         HYPRE_BoomerAMGSetRelaxType(precond, amg_rlx_type); /* Sym G.S./Jacobi hybrid */
+         HYPRE_BoomerAMGSetNumSweeps(precond, amg_rlx_sweeps);        /* Sweeeps on each level */
          HYPRE_BoomerAMGSetMaxLevels(precond, 20);       /* maximum number of levels */
          HYPRE_BoomerAMGSetTol(precond, ptol);            /* conv. tolerance (if needed) */
          HYPRE_BoomerAMGSetMaxIter(precond, p_maxit);          /* do only one iteration! */
@@ -1204,13 +1239,17 @@ hypre_int main(hypre_int argc, char *argv[])
          }
 
          /* Smoothing and AMG options */
-         HYPRE_AMSSetSmoothingOptions(precond, rlx_type, rlx_sweeps, rlx_weight, rlx_omega);
+         HYPRE_AMSSetSmoothingOptions(precond, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
          HYPRE_AMSSetAlphaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                      amg_interp_type, amg_Pmax);
          HYPRE_AMSSetBetaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                     amg_interp_type, amg_Pmax);
-         HYPRE_AMSSetAlphaAMGCoarseRelaxType(precond, coarse_rlx_type);
-         HYPRE_AMSSetBetaAMGCoarseRelaxType(precond, coarse_rlx_type);
+         HYPRE_AMSSetAlphaAMGCoarseRelaxType(precond, alpha_coarse_rlx_type);
+         HYPRE_AMSSetBetaAMGCoarseRelaxType(precond, beta_coarse_rlx_type);
+
+         HYPRE_AMSSetBetaAMGMaxLevels(precond, beta_amg_max_level);
+         HYPRE_AMSSetBetaAMGMaxIter(precond, beta_amg_max_iter);
+         HYPRE_AMSSetBetaAMGPrintLevel(precond, beta_amg_print_level);
 
          /* Set the GMRES preconditioner */
          HYPRE_GMRESSetPrecond(solver,
@@ -1248,8 +1287,8 @@ hypre_int main(hypre_int argc, char *argv[])
          HYPRE_BoomerAMGSetRestriction(amg_precond, 0); /* 0: P^T, 1: AIR, 2: AIR-2 */
          HYPRE_BoomerAMGSetInterpType(amg_precond, amg_interp_type); /* 0: classical; 6: extended */
          HYPRE_BoomerAMGSetCoarsenType(amg_precond, amg_coarsen_type); /* 0: cljp; 8: PMIS; 10: HMIS-1 */
-         HYPRE_BoomerAMGSetRelaxType(amg_precond, rlx_type);
-         HYPRE_BoomerAMGSetNumSweeps(amg_precond, 1);       /* Sweeeps on each level */
+         HYPRE_BoomerAMGSetRelaxType(amg_precond, amg_rlx_type);
+         HYPRE_BoomerAMGSetNumSweeps(amg_precond, amg_rlx_sweeps);       /* Sweeeps on each level */
          HYPRE_BoomerAMGSetMaxLevels(amg_precond, 20);       /* maximum number of levels */
          HYPRE_BoomerAMGSetPrintLevel(amg_precond, 0);
          HYPRE_BoomerAMGSetMaxIter(amg_precond, p_maxit);
@@ -1344,6 +1383,182 @@ hypre_int main(hypre_int argc, char *argv[])
 
    }
 
+   /* FGMRES solvers */
+   else if (solver_id == 21 || solver_id == 23 || solver_id == 24)
+   {
+      /* Start timing */
+      if (solver_id == 21)
+      {
+         time_index = hypre_InitializeTiming("BoomerAMG-FlexGMRES Setup");
+      }
+      else if (solver_id == 23)
+      {
+         time_index = hypre_InitializeTiming("AMS-FlexGMRES Setup");
+      }
+      else if (solver_id == 24)
+      {
+         time_index = hypre_InitializeTiming("DS-FlexGMRES Setup");
+      }
+      hypre_BeginTiming(time_index);
+
+      /* Create FlexGMRES solver */
+      HYPRE_ParCSRFlexGMRESCreate(hypre_MPI_COMM_WORLD, &solver);
+
+      /* Set FlexGMRES parameters */
+      HYPRE_FlexGMRESSetKDim(solver, kdim);
+      HYPRE_FlexGMRESSetMaxIter(solver, maxit);
+      HYPRE_FlexGMRESSetTol(solver, tol);
+      HYPRE_FlexGMRESSetPrintLevel(solver, print_level);
+      HYPRE_FlexGMRESSetLogging(solver, 1);
+
+      /* FlexGMRES with AMG preconditioner */
+      if (solver_id == 21)
+      {
+         /* Now set up the AMG preconditioner and specify any parameters */
+         HYPRE_BoomerAMGCreate(&precond);
+         HYPRE_BoomerAMGSetPrintLevel(precond, 1);       /* print amg solution info */
+         HYPRE_BoomerAMGSetCoarsenType(precond, 6);      /* Falgout coarsening */
+         HYPRE_BoomerAMGSetRelaxType(precond, amg_rlx_type); /* Sym G.S./Jacobi hybrid */
+         HYPRE_BoomerAMGSetNumSweeps(precond, amg_rlx_sweeps);        /* Sweeeps on each level */
+         HYPRE_BoomerAMGSetMaxLevels(precond, 20);       /* maximum number of levels */
+         HYPRE_BoomerAMGSetTol(precond, ptol);            /* conv. tolerance (if needed) */
+         HYPRE_BoomerAMGSetMaxIter(precond, p_maxit);          /* do only one iteration! */
+         HYPRE_BoomerAMGSetStrongThreshold(precond, theta);
+
+         /* Set the GMRES preconditioner */
+         HYPRE_FlexGMRESSetPrecond(solver,
+                               (HYPRE_PtrToSolverFcn)HYPRE_BoomerAMGSolve,
+                               (HYPRE_PtrToSolverFcn)HYPRE_BoomerAMGSetup,
+                               precond);
+      }
+      /* FlexGMRES with AMS preconditioner */
+      else if (solver_id == 23)
+      {
+         /* Now set up the AMS preconditioner and specify any parameters */
+         HYPRE_AMSCreate(&precond);
+         HYPRE_AMSSetDimension(precond, dim);
+         HYPRE_AMSSetMaxIter(precond, p_maxit);
+         HYPRE_AMSSetTol(precond, ptol);
+         HYPRE_AMSSetCycleType(precond, cycle_type);
+         HYPRE_AMSSetPrintLevel(precond, 0);
+         HYPRE_AMSSetDiscreteGradient(precond, G);
+
+         if (zero_cond)
+         {
+            HYPRE_AMSSetInteriorNodes(precond, interior_nodes);
+            HYPRE_AMSSetProjectionFrequency(precond, 5);
+         }
+
+         /* Vectors Gx, Gy and Gz */
+         if (!coordinates)
+         {
+            HYPRE_AMSSetEdgeConstantVectors(precond, Gx, Gy, Gz);
+         }
+
+         /* Vectors x, y and z */
+         if (coordinates)
+         {
+            HYPRE_AMSSetCoordinateVectors(precond, x, y, z);
+         }
+
+         /* Poisson matrices */
+         if (h1_method)
+         {
+            HYPRE_AMSSetAlphaPoissonMatrix(precond, Aalpha);
+            HYPRE_AMSSetBetaPoissonMatrix(precond, Abeta);
+         }
+
+         if (singular_problem)
+         {
+            HYPRE_AMSSetBetaPoissonMatrix(precond, NULL);
+         }
+
+         /* Smoothing and AMG options */
+         HYPRE_AMSSetSmoothingOptions(precond, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
+         HYPRE_AMSSetAlphaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
+                                     amg_interp_type, amg_Pmax);
+         HYPRE_AMSSetBetaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
+                                    amg_interp_type, amg_Pmax);
+         HYPRE_AMSSetAlphaAMGCoarseRelaxType(precond, alpha_coarse_rlx_type);
+         HYPRE_AMSSetBetaAMGCoarseRelaxType(precond, beta_coarse_rlx_type);
+
+         HYPRE_AMSSetBetaAMGMaxLevels(precond, beta_amg_max_level);
+         HYPRE_AMSSetBetaAMGMaxIter(precond, beta_amg_max_iter);
+         HYPRE_AMSSetBetaAMGPrintLevel(precond, beta_amg_print_level);
+
+         /* Set the GMRES preconditioner */
+         HYPRE_FlexGMRESSetPrecond(solver,
+                               (HYPRE_PtrToSolverFcn)HYPRE_AMSSolve,
+                               (HYPRE_PtrToSolverFcn)HYPRE_AMSSetup,
+                               precond);
+      }
+
+      /* FlexGMRES with diagonal scaling preconditioner */
+      else if (solver_id == 14)
+      {
+         /* Set the GMRES preconditioner */
+         HYPRE_FlexGMRESSetPrecond(solver,
+                               (HYPRE_PtrToSolverFcn)HYPRE_ParCSRDiagScale,
+                               (HYPRE_PtrToSolverFcn)HYPRE_ParCSRDiagScaleSetup,
+                               NULL);
+      }
+
+      /* Setup */
+      HYPRE_FlexGMRESSetup(solver, (HYPRE_Matrix)A, (HYPRE_Vector)b, (HYPRE_Vector)x0);
+
+      /* Finalize setup timing */
+      hypre_EndTiming(time_index);
+      hypre_PrintTiming("Setup phase times", hypre_MPI_COMM_WORLD);
+      hypre_FinalizeTiming(time_index);
+      hypre_ClearTiming();
+
+      /* Start timing again */
+      if (solver_id == 21)
+      {
+         time_index = hypre_InitializeTiming("BoomerAMG-FlexGMRES Solve");
+      }
+      else if (solver_id == 23)
+      {
+         time_index = hypre_InitializeTiming("AMS-FlexGMRES Solve");
+      }
+      else if (solver_id == 24)
+      {
+         time_index = hypre_InitializeTiming("DS-FlexGMRES Solve");
+      }
+      hypre_BeginTiming(time_index);
+
+      /* Solve */
+      HYPRE_FlexGMRESSolve(solver, (HYPRE_Matrix)A, (HYPRE_Vector)b, (HYPRE_Vector)x0);
+
+      /* Finalize solve timing */
+      hypre_EndTiming(time_index);
+      hypre_PrintTiming("Solve phase times", hypre_MPI_COMM_WORLD);
+      hypre_FinalizeTiming(time_index);
+      hypre_ClearTiming();
+
+      /* get some info */
+      HYPRE_FlexGMRESGetNumIterations(solver, &num_iterations);
+      HYPRE_FlexGMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
+      if (myid == 0)
+      {
+         hypre_printf("\n");
+         hypre_printf("Iterations = %d\n", num_iterations);
+         hypre_printf("Final Relative Residual Norm = %e\n", final_res_norm);
+         hypre_printf("\n");
+      }
+
+      /* Destroy solver and preconditioner */
+      HYPRE_ParCSRFlexGMRESDestroy(solver);
+      if (solver_id == 21)
+      {
+         HYPRE_BoomerAMGDestroy(precond);
+      }
+      else if (solver_id == 23)
+      {
+         HYPRE_AMSDestroy(precond);
+      }
+
+   }
    /* Save the solution */
    //    HYPRE_ParVectorPrint(x0,"jpsol_ams/x.ams");
 
