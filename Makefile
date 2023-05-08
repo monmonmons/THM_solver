@@ -59,7 +59,8 @@ LFLAGS =\
 ##################################################################
 
 HYPRE_DRIVERS =\
- maxwell_ams.c
+ maxwell_ams.c \
+ hypre_superlu.c
 
 HYPRE_DRIVER_EXECS=${HYPRE_DRIVERS:.c=}
 HYPRE_F77_EXAMPLES_DRIVER_EXECS=${HYPRE_F77_EXAMPLES_DRIVERS:.c=}
@@ -75,7 +76,7 @@ all++: ${HYPRE_DRIVER_CXX_EXECS}
 install:
 
 clean:
-	rm -f maxwell_ams
+	rm -f maxwell_ams hypre_superlu
 	rm -f *.o *.obj *.csv
 	rm -rf pchdir tca.map *inslog*
 
@@ -84,7 +85,7 @@ distclean: clean
 	rm -f ${HYPRE_F77_EXAMPLES_DRIVER_EXECS}
 	rm -f ${HYPRE_DRIVER_F77_EXECS}
 	rm -f ${HYPRE_DRIVER_CXX_EXECS} cxx_*
-	rm -f thmaxwell
+	rm -f maxwell_ams hypre_superlu
 
 ##################################################################
 # Rules
@@ -93,5 +94,9 @@ distclean: clean
 # C
 
 maxwell_ams: maxwell_ams.o
+	@echo  "Building" $@ "... "
+	${LINK_CC} -o $@ $< ${LFLAGS} 
+
+hypre_superlu: hypre_superlu.o
 	@echo  "Building" $@ "... "
 	${LINK_CC} -o $@ $< ${LFLAGS}
