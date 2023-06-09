@@ -223,7 +223,7 @@ hypre_int main(hypre_int argc, char *argv[])
    HYPRE_Solver solver, precond, amg_precond;
 
    /* iterative options */
-   HYPRE_Int example, spd_example, print_level, save_rhs, save_sol;
+   HYPRE_Int example, spd_example, sip_example, print_level, save_rhs, save_sol;
    HYPRE_Int solver_id, refine, rhs_type, rand_seed;
    HYPRE_Int maxit, p_maxit, kdim;
    HYPRE_Real ptol, tol; // tolerance for the preconditioner
@@ -231,14 +231,16 @@ hypre_int main(hypre_int argc, char *argv[])
    HYPRE_Real final_res_norm;
 
    /* amg options */
-   HYPRE_Int amg_rlx_type, alpha_coarse_rlx_type, beta_coarse_rlx_type;
+   HYPRE_Int amg_rlx_type, amg_rlx_coarse;
+   HYPRE_Int smooth_coarse_rlx_type, alpha_coarse_rlx_type, beta_coarse_rlx_type;
    HYPRE_Real theta;
    HYPRE_Int amg_coarsen_type, amg_interp_type, amg_agg_levels, amg_Pmax, amg_rlx_sweeps;
+   HYPRE_Int smooth_amg_max_iter;
    HYPRE_Int beta_amg_max_level, beta_amg_print_level, beta_amg_max_iter;
    HYPRE_Int alpha_amg_x_max_iter, alpha_amg_y_max_iter, alpha_amg_z_max_iter;
 
    /* ams options */
-   HYPRE_Int dim, cycle_type, ams_rlx_type, ams_rlx_sweeps;
+   HYPRE_Int dim, cycle_type, ams_rlx_type, ams_rlx_sweeps, APi_rlx_sweeps;
    HYPRE_Int h1_method, singular_problem, coordinates;
    HYPRE_Real ams_rlx_weight, ams_rlx_omega;
    HYPRE_Int recompute_residual_p;
@@ -294,6 +296,7 @@ hypre_int main(hypre_int argc, char *argv[])
    /* Set defaults */
    example = 0;
    spd_example = 0;
+   sip_example = 0;
    refine = 0;
    save_rhs = 0;
    save_sol = 0;
@@ -318,6 +321,10 @@ hypre_int main(hypre_int argc, char *argv[])
    ams_rlx_weight = 1.0;
    ams_rlx_omega = 1.0;
 
+   APi_rlx_sweeps = 1;
+   smooth_coarse_rlx_type = 9; /* 1 - Jacobi; 8 - SSOR; 9 - direct */
+   smooth_amg_max_iter = 1;
+
    beta_amg_max_level = 25;
    beta_amg_max_iter = 1;
    beta_amg_print_level = 0;
@@ -331,6 +338,7 @@ hypre_int main(hypre_int argc, char *argv[])
    amg_coarsen_type = 10;     /* 10: HMIS-1 ; 8: PMIS ; 6: Falgout*/
    amg_agg_levels = 1;
    amg_rlx_type = 8; /* 3 - GS; 6 - sym GS */
+   amg_rlx_coarse = 9;
 
    /* cycle_type = 1; amg_coarsen_type = 10; amg_agg_levels = 0; amg_rlx_type = 3; */ /* HMIS-0 */
    /* cycle_type = 1; amg_coarsen_type = 8; amg_agg_levels = 1; amg_rlx_type = 3;  */ /* PMIS-1 */
@@ -397,6 +405,11 @@ hypre_int main(hypre_int argc, char *argv[])
             arg_index++;
             beta_amg_print_level = atoi(argv[arg_index++]);
          }
+         else if (strcmp(argv[arg_index], "-smmaxit") == 0)
+         {
+            arg_index++;
+            smooth_amg_max_iter = atoi(argv[arg_index++]);
+         }
          else if (strcmp(argv[arg_index], "-bgmaxit") == 0)
          {
             arg_index++;
@@ -447,6 +460,11 @@ hypre_int main(hypre_int argc, char *argv[])
             arg_index++;
             amg_rlx_type = atoi(argv[arg_index++]);
          }
+         else if (strcmp(argv[arg_index], "-amgcrlx") == 0)
+         {
+            arg_index++;
+            amg_rlx_coarse = atoi(argv[arg_index++]);
+         }
          else if (strcmp(argv[arg_index], "-amgrlxn") == 0)
          {
             arg_index++;
@@ -456,6 +474,11 @@ hypre_int main(hypre_int argc, char *argv[])
          {
             arg_index++;
             ams_rlx_sweeps = atoi(argv[arg_index++]);
+         }
+         else if (strcmp(argv[arg_index], "-brlxn") == 0)
+         {
+            arg_index++;
+            APi_rlx_sweeps = atoi(argv[arg_index++]);
          }
          else if (strcmp(argv[arg_index], "-rlxw") == 0)
          {
@@ -546,6 +569,12 @@ hypre_int main(hypre_int argc, char *argv[])
          else if (strcmp(argv[arg_index], "-spdex") == 0)
          {
             spd_example = 1;
+            arg_index++;
+            break;
+         }
+         else if (strcmp(argv[arg_index], "-sip") == 0)
+         {
+            sip_example = 1;
             arg_index++;
             break;
          }
@@ -715,7 +744,7 @@ hypre_int main(hypre_int argc, char *argv[])
       }
       if (col_partition)
       {
-         hypre_TFree(row_partition, HYPRE_MEMORY_HOST);
+         hypre_TFree(col_partition, HYPRE_MEMORY_HOST);
       }
 
       HYPRE_ParCSRMatrixGetRowPartitioning((HYPRE_ParCSRMatrix)G, &row_partition);
@@ -738,11 +767,105 @@ hypre_int main(hypre_int argc, char *argv[])
       }
       if (col_partition)
       {
-         hypre_TFree(row_partition, HYPRE_MEMORY_HOST);
+         hypre_TFree(col_partition, HYPRE_MEMORY_HOST);
       }
    }
-   else
+   else if (sip_example)
    {
+      char *file_locate = "/home/dyt/matrix/sipB_matrix_hypre";
+      char M_file[100], G_file[100];
+      char rhs_file_real[100], rhs_file_imag[100], rhs_file_real_iter[100], rhs_file_imag_iter[100];
+      char xcood_file[100], ycood_file[100], zcood_file[100];
+
+      sprintf(M_file, "%s/hypre_CSR.M", file_locate, refine);
+      sprintf(G_file, "%s/hypre_CSR.G", file_locate, refine);
+      sprintf(rhs_file_real, "%s/seq_b0_real", file_locate, refine);
+      sprintf(rhs_file_imag, "%s/seq_b0_imag", file_locate, refine);
+      sprintf(rhs_file_real_iter, "%s/seq_b1_real", file_locate, refine);
+      sprintf(rhs_file_imag_iter, "%s/seq_b1_imag", file_locate, refine);
+      sprintf(xcood_file, "%s/seq_x", file_locate, refine);
+      sprintf(ycood_file, "%s/seq_y", file_locate, refine);
+      sprintf(zcood_file, "%s/seq_z", file_locate, refine);
+
+      ReadParFromOneFile(M_file, &A, NULL, NULL);
+
+      HYPRE_BigInt *row_partition, *col_partition;
+      HYPRE_ParCSRMatrixGetRowPartitioning((HYPRE_ParCSRMatrix)A, &row_partition);
+      HYPRE_ParCSRMatrixGetColPartitioning((HYPRE_ParCSRMatrix)A, &col_partition);
+
+      if (rhs_type == 0)
+      {
+         b = hypre_ParVectorCreate(hypre_ParCSRMatrixComm(A), row_partition[num_procs], row_partition);
+         hypre_ParVectorInitialize(b);
+         hypre_ParVectorSetRandomValues(b, 1);
+      }
+      else if (rhs_type == 1)
+      {
+         ReadRhsParFromOneFile(rhs_file_real, col_partition, &b);
+      }
+      else if (rhs_type == 2)
+      {
+         ReadRhsParFromOneFile(rhs_file_imag, col_partition, &b);
+      }
+      else if (rhs_type == 3)
+      {
+         ReadRhsParFromOneFile(rhs_file_real_iter, col_partition, &b);
+      }
+      else if (rhs_type == 4)
+      {
+         ReadRhsParFromOneFile(rhs_file_imag_iter, col_partition, &b);
+      }
+      else if (rhs_type == 5)
+      {
+         b = hypre_ParVectorCreate(hypre_ParCSRMatrixComm(A), row_partition[num_procs], row_partition);
+         hypre_ParVectorInitialize(b);
+         hypre_ParVectorSetConstantValues(b, 1.0);
+      }
+
+      // ReadRhsParFromOneFile(rhs_file, col_partition, &b);
+
+      x0 = hypre_ParVectorCreate(hypre_ParCSRMatrixComm(A), row_partition[num_procs], row_partition);
+      hypre_ParVectorInitialize(x0);
+      hypre_ParVectorSetConstantValues(x0, 0.0);
+
+      ReadParFromOneFile(G_file, &G, NULL, NULL);
+      if (row_partition)
+      {
+         hypre_TFree(row_partition, HYPRE_MEMORY_HOST);
+      }
+      if (col_partition)
+      {
+         hypre_TFree(col_partition, HYPRE_MEMORY_HOST);
+      }
+
+      HYPRE_ParCSRMatrixGetRowPartitioning((HYPRE_ParCSRMatrix)G, &row_partition);
+      HYPRE_ParCSRMatrixGetColPartitioning((HYPRE_ParCSRMatrix)G, &col_partition);
+
+      // for (int i = 0; i <= num_procs; i++)
+      //    hypre_printf("myid = %d -- col_partition[%d] = %d ;\n", myid, i, col_partition[i]);
+
+      /* Vectors x, y and z */
+      if (coordinates)
+      {
+         ReadRhsParFromOneFile(xcood_file, col_partition, &x);
+         ReadRhsParFromOneFile(ycood_file, col_partition, &y);
+         if (dim == 3)
+         {
+            ReadRhsParFromOneFile(zcood_file, col_partition, &z);
+         }
+      }
+
+      if (row_partition)
+      {
+         hypre_TFree(row_partition, HYPRE_MEMORY_HOST);
+      }
+      if (col_partition)
+      {
+         hypre_TFree(col_partition, HYPRE_MEMORY_HOST);
+      }
+   }
+
+   else {
       /*   From one file  ---  hypre CSR format  */
 
 #if 1
@@ -834,7 +957,7 @@ hypre_int main(hypre_int argc, char *argv[])
       }
       if (col_partition)
       {
-         hypre_TFree(row_partition, HYPRE_MEMORY_HOST);
+         hypre_TFree(col_partition, HYPRE_MEMORY_HOST);
       }
 
       HYPRE_ParCSRMatrixGetRowPartitioning((HYPRE_ParCSRMatrix)G, &row_partition);
@@ -860,7 +983,7 @@ hypre_int main(hypre_int argc, char *argv[])
       }
       if (col_partition)
       {
-         hypre_TFree(row_partition, HYPRE_MEMORY_HOST);
+         hypre_TFree(col_partition, HYPRE_MEMORY_HOST);
       }
 
 #endif
@@ -966,6 +1089,7 @@ hypre_int main(hypre_int argc, char *argv[])
       HYPRE_BoomerAMGSetMaxIter(solver, maxit);            /* maximum number of iterations */
       HYPRE_BoomerAMGSetStrongThreshold(solver, theta);
       // HYPRE_BoomerAMGSetDSLUThreshold(solver, 1000);
+      HYPRE_BoomerAMGSetCycleRelaxType(solver, amg_rlx_coarse, 3); 
 
       HYPRE_BoomerAMGSetup(solver, A, b, x0);
 
@@ -1047,6 +1171,11 @@ hypre_int main(hypre_int argc, char *argv[])
 
       /* Smoothing and AMG options */
       HYPRE_AMSSetSmoothingOptions(solver, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
+      HYPRE_AMSSetAPiSmoothingOptions(solver, APi_rlx_sweeps);
+      HYPRE_AMSSetSmoothAMGOptions(solver, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
+                                   amg_interp_type, amg_Pmax, smooth_coarse_rlx_type);
+      HYPRE_AMSSetSmoothAMGMaxIter(solver, smooth_amg_max_iter);
+      
       HYPRE_AMSSetAlphaAMGOptions(solver, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                   amg_interp_type, amg_Pmax);
       HYPRE_AMSSetAlphaAMGCoarseRelaxType(solver, alpha_coarse_rlx_type);
@@ -1179,6 +1308,7 @@ hypre_int main(hypre_int argc, char *argv[])
          HYPRE_BoomerAMGSetTol(precond, ptol);                 /* conv. tolerance (if needed) */
          HYPRE_BoomerAMGSetMaxIter(precond, p_maxit);          /* do only one iteration! */
          HYPRE_BoomerAMGSetStrongThreshold(precond, theta);
+         HYPRE_BoomerAMGSetCycleRelaxType(precond, amg_rlx_coarse, 3); 
 
          /* Set the PCG preconditioner */
          HYPRE_PCGSetPrecond(solver,
@@ -1233,6 +1363,11 @@ hypre_int main(hypre_int argc, char *argv[])
 
          /* Smoothing and AMG options */
          HYPRE_AMSSetSmoothingOptions(precond, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
+         HYPRE_AMSSetAPiSmoothingOptions(precond, APi_rlx_sweeps);
+         HYPRE_AMSSetSmoothAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
+                                   amg_interp_type, amg_Pmax, smooth_coarse_rlx_type);
+         HYPRE_AMSSetSmoothAMGMaxIter(precond, smooth_amg_max_iter);
+        
          HYPRE_AMSSetAlphaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                      amg_interp_type, amg_Pmax);
          HYPRE_AMSSetBetaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
@@ -1376,6 +1511,7 @@ hypre_int main(hypre_int argc, char *argv[])
          HYPRE_BoomerAMGSetMaxIter(precond, p_maxit);          /* do only one iteration! */
          HYPRE_BoomerAMGSetStrongThreshold(precond, theta);
          // HYPRE_BoomerAMGSetDSLUThreshold(precond, 1000000);
+         HYPRE_BoomerAMGSetCycleRelaxType(precond, amg_rlx_coarse, 3); 
 
          /* Set the GMRES preconditioner */
          HYPRE_GMRESSetPrecond(solver,
@@ -1427,6 +1563,11 @@ hypre_int main(hypre_int argc, char *argv[])
 
          /* Smoothing and AMG options */
          HYPRE_AMSSetSmoothingOptions(precond, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
+         HYPRE_AMSSetAPiSmoothingOptions(precond, APi_rlx_sweeps);
+         HYPRE_AMSSetSmoothAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
+                                   amg_interp_type, amg_Pmax, smooth_coarse_rlx_type);
+         HYPRE_AMSSetSmoothAMGMaxIter(precond, smooth_amg_max_iter);
+         
          HYPRE_AMSSetAlphaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                      amg_interp_type, amg_Pmax);
          HYPRE_AMSSetBetaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
@@ -1620,6 +1761,7 @@ hypre_int main(hypre_int argc, char *argv[])
          HYPRE_BoomerAMGSetTol(precond, ptol);                 /* conv. tolerance (if needed) */
          HYPRE_BoomerAMGSetMaxIter(precond, p_maxit);          /* do only one iteration! */
          HYPRE_BoomerAMGSetStrongThreshold(precond, theta);
+         HYPRE_BoomerAMGSetCycleRelaxType(precond, amg_rlx_coarse, 3); 
 
          /* Set the GMRES preconditioner */
          HYPRE_FlexGMRESSetPrecond(solver,
@@ -1671,6 +1813,11 @@ hypre_int main(hypre_int argc, char *argv[])
 
          /* Smoothing and AMG options */
          HYPRE_AMSSetSmoothingOptions(precond, ams_rlx_type, ams_rlx_sweeps, ams_rlx_weight, ams_rlx_omega);
+         HYPRE_AMSSetAPiSmoothingOptions(precond, APi_rlx_sweeps);
+         HYPRE_AMSSetSmoothAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
+                                   amg_interp_type, amg_Pmax, smooth_coarse_rlx_type);
+         HYPRE_AMSSetSmoothAMGMaxIter(precond, smooth_amg_max_iter);
+         
          HYPRE_AMSSetAlphaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
                                      amg_interp_type, amg_Pmax);
          HYPRE_AMSSetBetaAMGOptions(precond, amg_coarsen_type, amg_agg_levels, amg_rlx_type, theta,
